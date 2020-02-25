@@ -2,8 +2,10 @@
 /*
 Plugin Name: Cachebuster
 Description: Append a file's modification time to its URL and prevent stale caches.
-Version: 1.0.0
-Author: <a href="https://peschar.net/">Albert Peschar</a>
+Version: 1.0
+Author: Albert Peschar
+Author URI: https://kiboit.com
+License: GPLv2 or later
 */
 
 function cabu_src($src, $handle) {
@@ -34,7 +36,7 @@ function cabu_src($src, $handle) {
     if(!$mtime)
         return $src;
 
-    $query = '?=' . base_convert(max(0, $mtime - 1460116094), 10, 36);
+    $query = '?=' . $mtime;
 
     if(($pos = strpos($src, '?')) !== false)
         $src = substr($src, 0, $pos);
