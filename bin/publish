@@ -8,6 +8,8 @@ version="${version#v}"
 package="$(bin/package)"
 repo="https://plugins.svn.wordpress.org/cachebuster/"
 
+git push git@github.com:apeschar/cachebuster HEAD --tags
+
 if [[ ! -d svn ]]; then
 	svn checkout "$repo/trunk" svn
 fi
