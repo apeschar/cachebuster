@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+mkdir -p dist
+
+version="$(git describe --tag --match 'v*')"
+out="dist/cachebuster-$version.zip"
+
+git archive -o "$out" HEAD -- cachebuster
+
+echo "$out"

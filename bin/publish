@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+version="$(git describe --tag --match 'v*' --exact-match)"
+version="${version#v}"
+package="$(bin/package)"
+repo="https://plugins.svn.wordpress.org/cachebuster/"
+
+if [[ ! -d svn ]]; then
+	svn checkout "$repo/trunk" svn
+fi
+
+rm -rf svn~
+mkdir svn~
+
+bsdtar xf "$package" -C svn~ --strip-components 1
+
+mv svn/.svn svn~
+rm -rf svn
+mv svn~ svn
+
+cd svn
+svn status | awk '$1 == "!" { print $2 }' | xargs -r svn rm
+svn add --force .
+svn commit --message "Release $version"
+
+svn rm --force "$repo/tags/$version" --message "Clear tag for $version" || true
+svn copy "$repo/trunk" "$repo/tags/$version" --message "Tag $version release"
