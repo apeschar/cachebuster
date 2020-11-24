@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 mkdir -p dist
 
 version="$(git describe --tag --match 'v*')"
+version="${version#v}"
 out="dist/cachebuster-$version.zip"
 absout="$PWD/$out"
 
