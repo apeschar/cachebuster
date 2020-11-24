@@ -7,7 +7,16 @@ mkdir -p dist
 
 version="$(git describe --tag --match 'v*')"
 out="dist/cachebuster-$version.zip"
+absout="$PWD/$out"
 
-git archive -o "$out" HEAD -- cachebuster
+tmp="$(mktemp -d)"
+cleanup() { rm -rf "$tmp"; }
+trap cleanup EXIT
+
+git archive HEAD | tar xf - -C "$tmp"
+
+cd "$tmp"
+VERSION="$version" perl -p -i -e 's/\$VERSION\$/%ENV{VERSION}/eg' cachebuster/cachebuster.php
+bsdtar cf "$absout" --format zip cachebuster
 
 echo "$out"
