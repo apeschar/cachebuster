@@ -3,7 +3,7 @@ Tags: cache, cachebuster, cache busting, modification time, timestamp, reload
 Requires at least: 4.4
 Requires PHP: 5.6
 Stable tag: trunk
-Tested up to: 5.3
+Tested up to: 5.5
 License: GPLv2 or later
 
 Add modification times to resource URLs to prevent caching of stale files.
