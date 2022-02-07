@@ -3,16 +3,24 @@ Tags: cache, cachebuster, cache busting, modification time, timestamp, reload
 Requires at least: 4.4
 Requires PHP: 5.6
 Stable tag: trunk
-Tested up to: 5.6
+Tested up to: 5.9
 License: GPLv2 or later
 
-Add modification times to resource URLs to prevent caching of stale files.
+Stop force refreshing or clearing your browsers cache by preventing caching of stale files.
 
 == Description ==
 
 This plugins appends the file modification time to style and script URLs, so that changes are effected immediately, even if the theme or plugin version is not changed.
 
+It will not slow down your site because resources are only reloaded when they change.
+
+Attributions: The plugin logo icon is by [Chanut-is-Industries](https://www.flaticon.com/free-icons/clean).
+
 == Changelog ==
+
+= 1.3 - 2022-02-07 =
+
+* Bump _Tested up to_ to 5.9.
 
 = 1.2 - 2020-11-24 =
 
