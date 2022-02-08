@@ -14,7 +14,7 @@ This plugins appends the file modification time to style and script URLs, so tha
 
 It will not slow down your site because resources are only reloaded when they change.
 
-Attributions: The plugin logo icon is by [Chanut-is-Industries](https://www.flaticon.com/free-icons/clean).
+Attributions: The plugin logo icon is by [Chanut-is-Industries](https://www.chanut-is.com/).
 
 == Changelog ==
 
