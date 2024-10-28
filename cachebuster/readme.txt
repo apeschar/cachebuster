@@ -3,7 +3,7 @@ Tags: cache, cachebuster, cache busting, modification time, timestamp, reload
 Requires at least: 4.4
 Requires PHP: 5.6
 Stable tag: trunk
-Tested up to: 6.6
+Tested up to: 6.7
 License: GPLv2 or later
 
 Stop force refreshing or clearing your browsers cache by preventing caching of stale files.
@@ -17,6 +17,10 @@ It will not slow down your site because resources are only reloaded when they ch
 Attributions: The plugin logo icon is by [Chanut-is-Industries](https://www.chanut-is.com/).
 
 == Changelog ==
+
+= 1.8 - 2024-07-04 =
+
+* Bump _Tested up to_ to 6.7.
 
 = 1.7 - 2024-07-04 =
 
