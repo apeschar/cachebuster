@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+usage() {
+	cat <<'EOF'
+Usage: bin/test-wordpress VERSION
+
+Package the current commit and test it against a WordPress major release,
+for example:
+
+    bin/test-wordpress 7.1
+
+Set WORDPRESS_ARCHIVE_URL to test a specific WordPress archive instead of the
+official release or branch nightly. Docker images can be overridden with
+WORDPRESS_DOCKER_IMAGE and MARIADB_DOCKER_IMAGE.
+EOF
+}
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+	usage
+	exit 0
+fi
+if [[ $# != 1 ]]; then
+	usage
+	exit 2
+fi
+
+wordpress_version="$1"
+if [[ ! $wordpress_version =~ ^[0-9]+\.[0-9]+$ ]]; then
+	echo "VERSION must be a major release such as 7.1" >&2
+	exit 2
+fi
+
+for command in curl docker unzip; do
+	if ! command -v "$command" >/dev/null; then
+		echo "Required command not found: $command" >&2
+		exit 1
+	fi
+done
+
+package="$(bin/package)"
+test_root="$(mktemp -d)"
+case_id="cachebuster-wp-${wordpress_version//./-}-$$"
+wordpress_container="$case_id-wordpress"
+database_container="$case_id-database"
+docker_network="$case_id-network"
+wordpress_image="${WORDPRESS_DOCKER_IMAGE:-wordpress:php8.3-apache}"
+database_image="${MARIADB_DOCKER_IMAGE:-mariadb:11}"
+
+cleanup() {
+	docker rm -f "$wordpress_container" "$database_container" >/dev/null 2>&1 || true
+	docker network rm "$docker_network" >/dev/null 2>&1 || true
+	rm -rf "$test_root"
+}
+trap cleanup EXIT
+
+wordpress_archive="$test_root/wordpress.zip"
+if [[ -n ${WORDPRESS_ARCHIVE_URL:-} ]]; then
+	archive_url="$WORDPRESS_ARCHIVE_URL"
+	archive_kind="configured archive"
+elif curl -fsSL \
+	"https://downloads.wordpress.org/release/wordpress-$wordpress_version.zip" \
+	-o "$wordpress_archive" 2>/dev/null; then
+	archive_url="https://downloads.wordpress.org/release/wordpress-$wordpress_version.zip"
+	archive_kind="release"
+else
+	archive_url="https://wordpress.org/nightly-builds/wordpress-$wordpress_version-latest.zip"
+	archive_kind="branch nightly"
+fi
+
+if [[ ! -s $wordpress_archive ]]; then
+	echo "Downloading WordPress $wordpress_version $archive_kind"
+	curl -fsSL "$archive_url" -o "$wordpress_archive"
+else
+	echo "Downloaded WordPress $wordpress_version $archive_kind"
+fi
+
+unzip -q "$wordpress_archive" -d "$test_root"
+if [[ ! -f $test_root/wordpress/wp-includes/version.php ]]; then
+	echo "Archive does not contain a WordPress installation: $archive_url" >&2
+	exit 1
+fi
+
+unzip -q "$package" -d "$test_root/wordpress/wp-content/plugins"
+
+packaged_tested_version="$(
+	unzip -p "$package" cachebuster/readme.txt |
+		sed -n 's/^Tested up to:[[:space:]]*//p'
+)"
+if [[ $packaged_tested_version != "$wordpress_version" ]]; then
+	echo "Packaged 'Tested up to' is $packaged_tested_version, expected $wordpress_version" >&2
+	exit 1
+fi
+
+docker network create "$docker_network" >/dev/null
+docker run -d --name "$database_container" --network "$docker_network" \
+	-e MARIADB_DATABASE=wordpress \
+	-e MARIADB_USER=wordpress \
+	-e MARIADB_PASSWORD=wordpress \
+	-e MARIADB_ROOT_PASSWORD=wordpress \
+	"$database_image" >/dev/null
+
+database_ready=false
+for _attempt in {1..60}; do
+	if docker exec "$database_container" \
+		mariadb-admin ping -h 127.0.0.1 -uroot -pwordpress --silent \
+		>/dev/null 2>&1; then
+		database_ready=true
+		break
+	fi
+	sleep 1
+done
+if [[ $database_ready != true ]]; then
+	echo "MariaDB did not become ready" >&2
+	docker logs "$database_container" >&2
+	exit 1
+fi
+
+docker run -d --name "$wordpress_container" --network "$docker_network" \
+	-e WORDPRESS_DB_HOST="$database_container:3306" \
+	-e WORDPRESS_DB_USER=wordpress \
+	-e WORDPRESS_DB_PASSWORD=wordpress \
+	-e WORDPRESS_DB_NAME=wordpress \
+	-v "$test_root/wordpress:/var/www/html" \
+	"$wordpress_image" >/dev/null
+
+wordpress_ready=false
+for _attempt in {1..60}; do
+	if docker exec "$wordpress_container" test -f /var/www/html/wp-config.php; then
+		wordpress_ready=true
+		break
+	fi
+	sleep 1
+done
+if [[ $wordpress_ready != true ]]; then
+	echo "WordPress did not become ready" >&2
+	docker logs "$wordpress_container" >&2
+	exit 1
+fi
+
+docker exec -i "$wordpress_container" php <<'PHP'
+<?php
+define('WP_INSTALLING', true);
+$_SERVER['HTTP_HOST'] = 'wordpress.test';
+require '/var/www/html/wp-load.php';
+require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+add_filter('pre_wp_mail', '__return_true');
+$result = wp_install(
+    'Cachebuster compatibility test',
+    'admin',
+    'admin@example.test',
+    true,
+    '',
+    'test-password'
+);
+if (is_wp_error($result)) {
+    fwrite(STDERR, $result->get_error_message() . PHP_EOL);
+    exit(1);
+}
+echo 'Installed WordPress ' . $wp_version . PHP_EOL;
+PHP
+
+docker exec -i \
+	-e EXPECTED_WORDPRESS_VERSION="$wordpress_version" \
+	"$wordpress_container" php <<'PHP'
+<?php
+$_SERVER['HTTP_HOST'] = 'wordpress.test';
+require '/var/www/html/wp-load.php';
+require_once ABSPATH . 'wp-admin/includes/plugin.php';
+
+$expected_wordpress_version = getenv('EXPECTED_WORDPRESS_VERSION');
+if (strpos($wp_version, $expected_wordpress_version) !== 0) {
+    fwrite(
+        STDERR,
+        "Expected WordPress $expected_wordpress_version, installed $wp_version" . PHP_EOL
+    );
+    exit(1);
+}
+
+$plugin_file = 'cachebuster/cachebuster.php';
+$plugin_data = get_plugin_data(WP_PLUGIN_DIR . '/' . $plugin_file);
+$result = activate_plugin($plugin_file);
+if (is_wp_error($result)) {
+    fwrite(STDERR, $result->get_error_message() . PHP_EOL);
+    exit(1);
+}
+
+$relative = 'wp-includes/css/dashicons.css';
+$path = ABSPATH . $relative;
+$mtime = filemtime($path);
+$local = site_url('/' . $relative) . '?ver=' . $wp_version;
+$expected = site_url('/' . $relative) . '?=' . $mtime;
+$external = 'https://cdn.example.test/library.css?ver=1';
+
+$failures = [];
+if (!is_plugin_active($plugin_file)) {
+    $failures[] = 'plugin is not active';
+}
+if (apply_filters('style_loader_src', $local, 'dashicons') !== $expected) {
+    $failures[] = 'style filter did not append the local file mtime';
+}
+if (apply_filters('script_loader_src', $local, 'test-script') !== $expected) {
+    $failures[] = 'script filter did not append the local file mtime';
+}
+if (apply_filters('style_loader_src', $external, 'external') !== $external) {
+    $failures[] = 'style filter changed an external URL';
+}
+if ($failures) {
+    fwrite(STDERR, implode(PHP_EOL, $failures) . PHP_EOL);
+    exit(1);
+}
+
+echo 'Activated packaged Cachebuster ' . $plugin_data['Version'] . PHP_EOL;
+echo 'Style/script mtime filters and external URL handling passed' . PHP_EOL;
+PHP
